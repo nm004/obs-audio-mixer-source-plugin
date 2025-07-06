@@ -33,13 +33,13 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "com.example.plugintemplate-for-obs"
+            "bundleId": "099e0256-e686-4670-bafd-2a36a7b27df7"
         }
     },
-    "name": "plugintemplate-for-obs",
-    "displayName": "Plugin Template for OBS",
-    "version": "1.0.0",
-    "author": "Your Name Here",
+    "name": "audio-mixer-source",
+    "displayName": "Audio Mixer Source",
+    "version": "0.0.1",
+    "author": "Nozomi Miyamori",
     "website": "https://example.com",
     "email": "me@example.com"
 }
