@@ -20,7 +20,6 @@ struct data {
 	struct audio_capture_cb_param cb_params[NUM_OF_SOURCES];
 	struct obs_source_audio audio;
 	obs_source_t *context;
-	size_t channels;
 	uint_fast64_t alive_source_flag;
 	uint_fast64_t alive_source_flag0;
 	bool sending_audio;
@@ -61,7 +60,7 @@ static const char *get_name(void *type_data)
 static void *create(obs_data_t *settings, obs_source_t *source)
 {
 	struct data *data = bzalloc(sizeof(struct data));
-	audio_t *audio = obs_get_audio();
+	const struct audio_output_info *info = audio_output_get_info(obs_get_audio());
 
 	//memset(data->audio_buf, 0, sizeof(data->audio_buf));
 	for (int i = 0; i < NUM_OF_SOURCES; i++) {
@@ -74,12 +73,11 @@ static void *create(obs_data_t *settings, obs_source_t *source)
 		data->audio.data[c] = (uint8_t *)data->audio_buf[c];
 	}
 	//data->audio.frames = 0;
-	data->audio.speakers = SPEAKERS_STEREO;
-	data->audio.format = AUDIO_FORMAT_FLOAT_PLANAR;
-	data->audio.samples_per_sec = audio_output_get_sample_rate(audio);
+	data->audio.speakers = info->speakers;
+	data->audio.format = info->format;
+	data->audio.samples_per_sec = info->samples_per_sec;
 	//data->audio.timestamp = 0;
 	data->context = source;
-	data->channels = audio_output_get_channels(audio);
 	//data->alive_source_flag = 0;
 	//data->alive_source_flag0 = 0;
 	//data->sending_audio = 0;
@@ -99,7 +97,7 @@ static void data_output_audio(struct data *data)
 	uint32_t remain_frames = AUDIO_FRAMES_MAX - data->audio.frames;
 	size_t remain_bytes = sizeof(float)*remain_frames;
 	size_t output_bytes = sizeof(float)*data->audio.frames;
-	for (size_t c = 0; c < data->channels; c++) {
+	for (size_t c = 0; c < MAX_AV_PLANES; c++) {
 		float *adata = data->audio_buf[c];
 		memmove(adata, adata+data->audio.frames, remain_bytes);
 		memset(adata+remain_frames, 0, output_bytes);
@@ -136,15 +134,17 @@ static void audio_capture_cb(void *param_, obs_source_t *source, const struct au
 	data->alive_source_flag |= flag_mask;
 
 	float k = obs_source_get_volume(param->source);
-	for (size_t c = 0; c < data->channels; c++) {
-		float *adata = data->audio_buf[c];
+	for (size_t c = 0; c < MAX_AV_PLANES; c++) {
 		float *adata_ = (float *)audio_data->data[c];
-		for (uint32_t i = param->written_frames, j = 0; j < audio_data->frames; i++, j++) {
+		if (!adata_)
+			continue;
+
+		float *adata = data->audio_buf[c];
+		for (uint32_t i = param->written_frames, j = 0; j < audio_data->frames; i++, j++)
 			adata[i] += k*adata_[j];
-		}
 	}
 	param->written_frames += audio_data->frames;
-	if (audio_data->frames > data->audio.frames)
+	//if (audio_data->frames > data->audio.frames)
 		data->audio.frames = audio_data->frames;
 	//if (audio_data->timestamp > data->audio.timestamp)
 		data->audio.timestamp = audio_data->timestamp;
@@ -156,7 +156,6 @@ static void audio_capture_cb(void *param_, obs_source_t *source, const struct au
 static void on_source_remove(void *param_, calldata_t *cd)
 {
 	struct audio_capture_cb_param *param = param_;
-
 
 	obs_source_remove_audio_capture_callback(param->source, audio_capture_cb, param);
 	signal_handler_t *h = obs_source_get_signal_handler(param->source);
