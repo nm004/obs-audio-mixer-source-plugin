@@ -13,7 +13,7 @@ struct audio_capture_cb_param {
 };
 
 //TODO: Investigate the common maximum block size
-#define AUDIO_FRAMES_MAX 0x1000
+#define AUDIO_FRAMES_MAX 0x2000
 #define NUM_OF_SOURCES 8
 struct data {
 	float audio_buf[MAX_AV_PLANES][AUDIO_FRAMES_MAX];
