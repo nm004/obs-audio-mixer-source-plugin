@@ -3,10 +3,12 @@
 #include <string.h>
 #include <stdint.h>
 
+typedef uint_fast64_t flags_int;
+
 #define AUDIO_SOURCE_MIXER_ID "audio_source_mixer"
 //TODO: Investigate the common maximum block size
 #define AUDIO_FRAMES_MAX 0x2000
-#define NUM_OF_SOURCES 64
+#define NUM_OF_SOURCES sizeof(flags_int) * CHAR_BIT
 
 const char *S_SOURCE[NUM_OF_SOURCES] = {
 	"source1", "source2", "source3", "source4", "source5", "source6", "source7", "source8",
@@ -16,8 +18,9 @@ const char *S_SOURCE[NUM_OF_SOURCES] = {
 	"source33", "source34", "source35", "source36", "source37", "source38", "source39", "source40",
 	"source41", "source42", "source43", "source44", "source45", "source46", "source47", "source48",
 	"source49", "source50", "source51", "source52", "source53", "source54", "source55", "source56",
-	"source57", "source58", "source59", "source60", "source61", "source62", "source63", "source64"
+	"source57", "source58", "source59", "source60", "source61", "source62", "source63", "source64",
 };
+
 const char *TEXT_SOURCE[NUM_OF_SOURCES] = {
 	"Source 1", "Source 2", "Source 3", "Source 4", "Source 5", "Source 6", "Source 7", "Source 8",
 	"Source 9", "Source 10", "Source 11", "Source 12", "Source 13", "Source 14", "Source 15",
@@ -27,7 +30,7 @@ const char *TEXT_SOURCE[NUM_OF_SOURCES] = {
 	"Source 37", "Source 38", "Source 39", "Source 40", "Source 41", "Source 42", "Source 43",
 	"Source 44", "Source 45", "Source 46", "Source 47", "Source 48", "Source 49", "Source 50",
 	"Source 51", "Source 52", "Source 53", "Source 54", "Source 55", "Source 56", "Source 57",
-	"Source 58", "Source 59", "Source 60", "Source 61", "Source 62", "Source 63", "Source 64"
+	"Source 58", "Source 59", "Source 60", "Source 61", "Source 62", "Source 63", "Source 64",
 };
 
 struct data;
@@ -44,12 +47,14 @@ struct data {
 	struct audio_capture_cb_param cb_params[NUM_OF_SOURCES];
 	struct obs_source_audio audio;
 	obs_source_t *context;
-	uint_fast64_t alive_source_flag;
-	uint_fast64_t alive_source_flag0;
-	bool sending_audio;
+	// Flags that bit N is 1 if source N's frame is not written to audio_buf, otherwise 0.
+	flags_int frame_waiting_flags;
+	// Default state of the flags.
+	flags_int frame_waiting_flags_;
 };
 
 static void update(void *, obs_data_t *);
+static void on_source_mute(void *, calldata_t *);
 static void on_source_remove(void *, calldata_t *);
 static void on_source_destroy(void *, calldata_t *);
 
@@ -73,27 +78,20 @@ static void *create(obs_data_t *settings, obs_source_t *source)
 	for (int c = 0; c < MAX_AV_PLANES; c++) {
 		data->audio.data[c] = (uint8_t *)data->audio_buf[c];
 	}
-	//data->audio.frames = 0;
+	data->audio.frames = AUDIO_FRAMES_MAX;
 	data->audio.speakers = info->speakers;
 	data->audio.format = info->format;
 	data->audio.samples_per_sec = info->samples_per_sec;
 	//data->audio.timestamp = 0;
 	data->context = source;
-	//data->alive_source_flag = 0;
-	//data->alive_source_flag0 = 0;
-	//data->sending_audio = 0;
+	//data->frame_waiting_flags = 0;
+	//data->frame_waiting_flags_ = 0;
 	return data;
 }
 
 static void data_output_audio(struct data *data)
 {
-	if (data->sending_audio)
-		return;
-	data->sending_audio = true;
-
 	obs_source_output_audio(data->context, &data->audio);
-
-	//memset(data->audio_buf, 0, sizeof(data->audio_buf));
 
 	uint32_t remain_frames = AUDIO_FRAMES_MAX - data->audio.frames;
 	size_t remain_bytes = sizeof(float)*remain_frames;
@@ -103,36 +101,28 @@ static void data_output_audio(struct data *data)
 		memmove(adata, adata+data->audio.frames, remain_bytes);
 		memset(adata+remain_frames, 0, output_bytes);
 	}
-	data->alive_source_flag0 = data->alive_source_flag;
+	data->frame_waiting_flags = data->frame_waiting_flags_;
 	for (int i = 0; i < NUM_OF_SOURCES; i++) {
 		uint32_t f = data->audio.frames;
 		uint32_t wf = data->cb_params[i].written_frames;
-		uint32_t f1 = (wf > f) * (wf - f);
-		data->cb_params[i].written_frames = f1;
-		data->alive_source_flag0 &= ~(!!f1 << i);
+		data->cb_params[i].written_frames = (wf > f) * (wf - f);
+
+		// Unset a flag of a source if some frames of the source still remain.
+		data->frame_waiting_flags &= ~((wf > f) << i);
 	}
 	data->audio.timestamp = 0;
-	data->audio.frames = 0;
-	data->sending_audio = false;
+	data->audio.frames = AUDIO_FRAMES_MAX;
 }
 
 static void audio_capture_cb(void *param_, obs_source_t *source, const struct audio_data *audio_data, bool muted)
 {
-	if (muted) {
+	if (muted)
 		return;
-	}
 
 	struct audio_capture_cb_param *param = param_;
 	struct data *data = param->data;
-
 	uint_fast64_t flag_mask = 1ULL << param->index;
-	if (param->written_frames + audio_data->frames > AUDIO_FRAMES_MAX) {
-		// We ignore a source that outputs no audio data.
-		data->alive_source_flag ^= data->alive_source_flag0;
-		data_output_audio(data);
-		while (param->written_frames) {}
-	}
-	data->alive_source_flag |= flag_mask;
+	data->frame_waiting_flags |= flag_mask;
 
 	float k = obs_source_get_volume(param->source);
 	for (size_t c = 0; c < MAX_AV_PLANES; c++) {
@@ -145,12 +135,13 @@ static void audio_capture_cb(void *param_, obs_source_t *source, const struct au
 			adata[i] += k*adata_[j];
 	}
 	param->written_frames += audio_data->frames;
-	//if (audio_data->frames > data->audio.frames)
-		data->audio.frames = audio_data->frames;
-	//if (audio_data->timestamp > data->audio.timestamp)
-		data->audio.timestamp = audio_data->timestamp;
+	data->audio.timestamp = audio_data->timestamp;
+	data->audio.frames = (param->written_frames < data->audio.frames)
+				     ? param->written_frames
+				     : data->audio.frames;
 
-	if (!(data->alive_source_flag0 &= ~flag_mask))
+	data->frame_waiting_flags &= ~flag_mask;
+	if (data->frame_waiting_flags == 0)
 		data_output_audio(data);
 }
 
@@ -160,6 +151,8 @@ static void on_source_remove(void *param_, calldata_t *cd)
 
 	obs_source_remove_audio_capture_callback(param->source, audio_capture_cb, param);
 	signal_handler_t *h = obs_source_get_signal_handler(param->source);
+	signal_handler_disconnect(h, "mute", on_source_mute, param);
+	signal_handler_disconnect(h, "remove", on_source_remove, param);
 	signal_handler_disconnect(h, "destroy", on_source_destroy, param);
 	param->source = NULL;
 }
@@ -175,9 +168,10 @@ static void on_source_destroy(void *param_, calldata_t *cd)
 
 	param->source = NULL;
 
-	uint_fast64_t i = ~(1ULL << param->index);
-	data->alive_source_flag &= i;
-	if (!(data->alive_source_flag0 &= i))
+	uint_fast64_t i = 1ULL << param->index;
+	data->frame_waiting_flags &= ~i;
+	data->frame_waiting_flags_ &= ~i;
+	if (data->frame_waiting_flags == 0)
 		data_output_audio(data);
 }
 
@@ -186,16 +180,19 @@ static void on_source_mute(void *param_, calldata_t *cd)
 	struct audio_capture_cb_param *param = param_;
 	struct data *data = param->data;
 
-	if (calldata_bool(cd, "muted")) {
-		uint_fast64_t i = ~(1ULL << param->index);
-		data->alive_source_flag &= i;
-		if (!(data->alive_source_flag0 &= i))
-			data_output_audio(data);
-		param->written_frames = 0;
+	uint_fast64_t i = 1ULL << param->index;
+	if (calldata_bool (cd, "muted")) {
+		data->frame_waiting_flags &= ~i;
+		data->frame_waiting_flags_ &= ~i;
+	} else {
+		data->frame_waiting_flags |= i;
+		data->frame_waiting_flags_ |= i;
 	}
+	if (data->frame_waiting_flags == 0)
+		data_output_audio(data);
 }
 
-static void data_remove_callbacks(struct data *data)
+static void reset_sources_callbacks(struct data *data)
 {
 	for (int i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_source_t *s = data->cb_params[i].source;
@@ -213,9 +210,7 @@ static void data_remove_callbacks(struct data *data)
 
 static void destroy(void *data_)
 {
-	struct data *data = data_;
-	data_remove_callbacks(data);
-	while (data->sending_audio) {}
+	reset_sources_callbacks((struct data *)data_);
 	bfree(data_);
 }
 
@@ -228,11 +223,10 @@ static bool uuid_to_source(void *param_, obs_source_t *source)
 {
 	struct uuid_source *param = param_;
 	const char *uuid = obs_source_get_uuid(source);
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
-		if (!strcmp(param[i].uuid, uuid)) {
+	for (int i = 0; i < NUM_OF_SOURCES; i++)
+		if (!strcmp(param[i].uuid, uuid))
 			param[i].source = source;
-		}
-	}
+
 	return true;
 }
 
@@ -240,16 +234,16 @@ static void update(void *data_, obs_data_t *settings)
 {
 	struct data *data = data_;
 	struct uuid_source param[NUM_OF_SOURCES] = { {NULL, NULL} };
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (int i = 0; i < NUM_OF_SOURCES; i++)
 		param[i].uuid = obs_data_get_string(settings, S_SOURCE[i]);
-	}
+
 	obs_enum_sources(uuid_to_source, &param);
 	data->audio.timestamp = 0;
-	data->audio.frames = 0;
-	data->alive_source_flag = 0;
-	data->alive_source_flag0 = 0;
+	data->audio.frames = AUDIO_FRAMES_MAX;
+	data->frame_waiting_flags = 0;
+	data->frame_waiting_flags_ = 0;
 
-	data_remove_callbacks(data);
+	reset_sources_callbacks(data);
 	for (int i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_source_t *s = param[i].source;
 		if (s) {
@@ -259,7 +253,8 @@ static void update(void *data_, obs_data_t *settings)
 			signal_handler_connect(h, "mute", on_source_mute, p);
 			signal_handler_connect(h, "remove", on_source_remove, p);
 			signal_handler_connect(h, "destroy", on_source_destroy, p);
-			data->alive_source_flag0 |= !obs_source_muted(s) << i;
+			data->frame_waiting_flags_ |= !obs_source_muted(s) << i;
+			data->frame_waiting_flags = data->frame_waiting_flags_;
 			obs_source_add_audio_capture_callback(s, audio_capture_cb, p);
 		}
 	}
@@ -286,9 +281,9 @@ static bool add_sources(void *param_, obs_source_t *source)
 
 	const char *name = obs_source_get_name(source);
 	const char *uuid = obs_source_get_uuid(source);
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (int i = 0; i < NUM_OF_SOURCES; i++)
 		obs_property_list_add_string(param->source_list[i], name, uuid);
-	}
+
 	return true;
 }
 
@@ -298,9 +293,8 @@ static obs_properties_t *get_properties2(void *data_, void *type_data)
 	obs_properties_t *ppts = obs_properties_create();
 	struct add_sources_param param;
 
-	if (data) {
+	if (data)
 		param.context = data->context;
-	}
 
 	for (int i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_property_t *prop;
@@ -330,6 +324,7 @@ struct obs_source_info audio_source_mixer = {
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
+
 bool obs_module_load(void)
 {
 	obs_register_source(&audio_source_mixer);
