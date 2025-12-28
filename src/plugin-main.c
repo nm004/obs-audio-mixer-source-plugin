@@ -3,6 +3,33 @@
 #include <string.h>
 #include <stdint.h>
 
+#define AUDIO_SOURCE_MIXER_ID "audio_source_mixer"
+//TODO: Investigate the common maximum block size
+#define AUDIO_FRAMES_MAX 0x2000
+#define NUM_OF_SOURCES 64
+
+const char *S_SOURCE[NUM_OF_SOURCES] = {
+	"source1", "source2", "source3", "source4", "source5", "source6", "source7", "source8",
+	"source9", "source10", "source11", "source12", "source13", "source14", "source15", "source16",
+	"source17", "source18", "source19", "source20", "source21", "source22", "source23", "source24",
+	"source25", "source26", "source27", "source28", "source29", "source30", "source31", "source32",
+	"source33", "source34", "source35", "source36", "source37", "source38", "source39", "source40",
+	"source41", "source42", "source43", "source44", "source45", "source46", "source47", "source48",
+	"source49", "source50", "source51", "source52", "source53", "source54", "source55", "source56",
+	"source57", "source58", "source59", "source60", "source61", "source62", "source63", "source64"
+};
+const char *TEXT_SOURCE[NUM_OF_SOURCES] = {
+	"Source 1", "Source 2", "Source 3", "Source 4", "Source 5", "Source 6", "Source 7", "Source 8",
+	"Source 9", "Source 10", "Source 11", "Source 12", "Source 13", "Source 14", "Source 15",
+	"Source 16", "Source 17", "Source 18", "Source 19", "Source 20", "Source 21", "Source 22",
+	"Source 23", "Source 24", "Source 25", "Source 26", "Source 27", "Source 28", "Source 29",
+	"Source 30", "Source 31", "Source 32", "Source 33", "Source 34", "Source 35", "Source 36",
+	"Source 37", "Source 38", "Source 39", "Source 40", "Source 41", "Source 42", "Source 43",
+	"Source 44", "Source 45", "Source 46", "Source 47", "Source 48", "Source 49", "Source 50",
+	"Source 51", "Source 52", "Source 53", "Source 54", "Source 55", "Source 56", "Source 57",
+	"Source 58", "Source 59", "Source 60", "Source 61", "Source 62", "Source 63", "Source 64"
+};
+
 struct data;
 
 struct audio_capture_cb_param {
@@ -12,9 +39,6 @@ struct audio_capture_cb_param {
 	uint32_t written_frames;
 };
 
-//TODO: Investigate the common maximum block size
-#define AUDIO_FRAMES_MAX 0x2000
-#define NUM_OF_SOURCES 8
 struct data {
 	float audio_buf[MAX_AV_PLANES][AUDIO_FRAMES_MAX];
 	struct audio_capture_cb_param cb_params[NUM_OF_SOURCES];
@@ -28,29 +52,6 @@ struct data {
 static void update(void *, obs_data_t *);
 static void on_source_remove(void *, calldata_t *);
 static void on_source_destroy(void *, calldata_t *);
-
-#define AUDIO_SOURCE_MIXER_ID "audio_source_mixer"
-
-const char *S_SOURCE[NUM_OF_SOURCES] = {
-	"source1",
-	"source2",
-	"source3",
-	"source4",
-	"source5",
-	"source6",
-	"source7",
-	"source8",
-};
-const char *TEXT_SOURCE[NUM_OF_SOURCES] = {
-	"Source 1",
-	"Source 2",
-	"Source 3",
-	"Source 4",
-	"Source 5",
-	"Source 6",
-	"Source 7",
-	"Source 8",
-};
 
 static const char *get_name(void *type_data)
 {
@@ -126,7 +127,7 @@ static void audio_capture_cb(void *param_, obs_source_t *source, const struct au
 
 	uint_fast64_t flag_mask = 1ULL << param->index;
 	if (param->written_frames + audio_data->frames > AUDIO_FRAMES_MAX) {
-		// Let's ignore the source that outputs no audio data.
+		// We ignore a source that outputs no audio data.
 		data->alive_source_flag ^= data->alive_source_flag0;
 		data_output_audio(data);
 		while (param->written_frames) {}
