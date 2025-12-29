@@ -69,7 +69,7 @@ static void *create(obs_data_t *settings, obs_source_t *source)
 	const struct audio_output_info *info = audio_output_get_info(obs_get_audio());
 
 	//memset(data->audio_buf, 0, sizeof(data->audio_buf));
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++) {
 		//data->cb_params[i].source = NULL;
 		data->cb_params[i].data = data;
 		//data->cb_params[i].written_frames = 0;
@@ -102,7 +102,7 @@ static void data_output_audio(struct data *data)
 		memset(adata+remain_frames, 0, output_bytes);
 	}
 	data->frame_waiting_flags = data->frame_waiting_flags_;
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++) {
 		uint32_t f = data->audio.frames;
 		uint32_t wf = data->cb_params[i].written_frames;
 		data->cb_params[i].written_frames = (wf > f) * (wf - f);
@@ -194,7 +194,7 @@ static void on_source_mute(void *param_, calldata_t *cd)
 
 static void reset_sources_callbacks(struct data *data)
 {
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_source_t *s = data->cb_params[i].source;
 		if (s) {
 			struct audio_capture_cb_param *p = &data->cb_params[i];
@@ -223,7 +223,7 @@ static bool uuid_to_source(void *param_, obs_source_t *source)
 {
 	struct uuid_source *param = param_;
 	const char *uuid = obs_source_get_uuid(source);
-	for (int i = 0; i < NUM_OF_SOURCES; i++)
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++)
 		if (!strcmp(param[i].uuid, uuid))
 			param[i].source = source;
 
@@ -234,7 +234,7 @@ static void update(void *data_, obs_data_t *settings)
 {
 	struct data *data = data_;
 	struct uuid_source param[NUM_OF_SOURCES] = { {NULL, NULL} };
-	for (int i = 0; i < NUM_OF_SOURCES; i++)
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++)
 		param[i].uuid = obs_data_get_string(settings, S_SOURCE[i]);
 
 	obs_enum_sources(uuid_to_source, &param);
@@ -244,7 +244,7 @@ static void update(void *data_, obs_data_t *settings)
 	data->frame_waiting_flags_ = 0;
 
 	reset_sources_callbacks(data);
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_source_t *s = param[i].source;
 		if (s) {
 			struct audio_capture_cb_param *p = &data->cb_params[i];
@@ -281,7 +281,7 @@ static bool add_sources(void *param_, obs_source_t *source)
 
 	const char *name = obs_source_get_name(source);
 	const char *uuid = obs_source_get_uuid(source);
-	for (int i = 0; i < NUM_OF_SOURCES; i++)
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++)
 		obs_property_list_add_string(param->source_list[i], name, uuid);
 
 	return true;
@@ -296,7 +296,7 @@ static obs_properties_t *get_properties2(void *data_, void *type_data)
 	if (data)
 		param.context = data->context;
 
-	for (int i = 0; i < NUM_OF_SOURCES; i++) {
+	for (size_t i = 0; i < NUM_OF_SOURCES; i++) {
 		obs_property_t *prop;
 		prop = obs_properties_add_list(ppts, S_SOURCE[i], TEXT_SOURCE[i],
 				OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
